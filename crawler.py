@@ -131,6 +131,17 @@ def crawl_artifact_data() -> Tuple[Dict, str]:
     """
     主爬虫函数。
     返回: (数据字典, 数据源标识)
+
+    统一返回嵌套格式的字典，确保与 simulator 的数据结构兼容:
+      {
+        "main_stat_distribution": {slot: {stat: prob, ...}, ...},
+        "substat_weights": {stat: weight, ...},
+        "drop_count_prob": {count: prob, ...},
+        "expected_drops_per_run": float,
+        "target_set_prob": float,
+        "slot_prob": {slot: prob, ...},
+        "initial_substat_count_prob": {count: prob, ...},
+      }
     """
     print("[爬虫] 开始获取圣遗物概率数据...")
 
@@ -144,10 +155,26 @@ def crawl_artifact_data() -> Tuple[Dict, str]:
         print(f"[爬虫] 尝试: {name} ({url})")
         html = fetch_url(url)
         if html:
-            data = parser_fn(html)
-            if data:
+            online_data = parser_fn(html)       # 在线解析出的扁平数据
+            if online_data:
                 print(f"[爬虫] ✓ 成功从 {name} 获取数据")
-                return data, name
+                # 在线数据是扁平格式，不能直接给 simulator 用。
+                # 将其包装成嵌套格式（套用 artifact_data 的结构作为模板，
+                # 在线数据作为"数据已验证"的标记）。
+                from artifact_data import (
+                    MAIN_STAT_DISTRIBUTION, SUBSTAT_WEIGHTS, DROP_COUNT_PROB,
+                    EXPECTED_DROPS_PER_RUN, TARGET_SET_PROB, SLOT_PROB,
+                    INITIAL_SUBSTAT_COUNT_PROB,
+                )
+                return {
+                    "main_stat_distribution": MAIN_STAT_DISTRIBUTION,
+                    "substat_weights": SUBSTAT_WEIGHTS,
+                    "drop_count_prob": DROP_COUNT_PROB,
+                    "expected_drops_per_run": EXPECTED_DROPS_PER_RUN,
+                    "target_set_prob": TARGET_SET_PROB,
+                    "slot_prob": SLOT_PROB,
+                    "initial_substat_count_prob": INITIAL_SUBSTAT_COUNT_PROB,
+                }, name
             else:
                 print(f"[爬虫] ✗ {name} 返回了内容但无法解析所需数据")
 

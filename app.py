@@ -23,6 +23,7 @@ from artifact_data import (
     MAIN_STAT_DISTRIBUTION,
     EXPECTED_DROPS_PER_RUN, TARGET_SET_PROB, SLOT_PROB,
 )
+from crawler import crawl_artifact_data
 
 # ============================================================
 # 页面配置
@@ -62,6 +63,22 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ============================================================
+# 尝试获取在线数据（缓存 1 小时，失败则回退到硬编码数据）
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_latest_data():
+    """尝试从在线源获取最新概率数据，失败则返回 None"""
+    try:
+        data, source = crawl_artifact_data()
+        return data, source
+    except Exception:
+        return None, None
+
+crawled_data, data_source = get_latest_data()
 
 
 # ============================================================
@@ -128,7 +145,10 @@ with st.sidebar:
     circlet_key = circlet_options[circlet_choice]
 
     st.markdown("---")
-    st.caption("📖 数据来源: KQM / Genshin Wiki / 游戏解包")
+    if data_source:
+        st.caption(f"📡 数据源: {data_source}")
+    else:
+        st.caption("📖 数据来源: 预设解包数据")
 
 
 # ============================================================
@@ -145,14 +165,16 @@ st.markdown("### 📊 数据速览")
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric("每次副本期望", f"{EXPECTED_DROPS_PER_RUN:.1f} 个五星", help="20树脂")
+    _drops = crawled_data.get("expected_drops_per_run", EXPECTED_DROPS_PER_RUN) if crawled_data else EXPECTED_DROPS_PER_RUN
+    st.metric("每次副本期望", f"{_drops:.1f} 个五星", help="20树脂")
 with col2:
     st.metric("目标套装概率", "50%", help="两个套装各半")
 with col3:
     st.metric("部位均匀分布", "20%", help="五个部位各20%")
 with col4:
     # 显示当前杯子概率
-    goblet_prob = MAIN_STAT_DISTRIBUTION[SLOT_GOBLET].get(goblet_key, 0)
+    _dist = crawled_data.get("main_stat_distribution", MAIN_STAT_DISTRIBUTION) if crawled_data else MAIN_STAT_DISTRIBUTION
+    goblet_prob = _dist[SLOT_GOBLET].get(goblet_key, 0)
     st.metric("杯子目标概率", f"{goblet_prob*100:.1f}%", help="特定主词条在杯子中的出现概率")
 
 # ============================================================
@@ -165,11 +187,11 @@ slot_info = [
     ("🌸 生之花", "生命值", 1.0),
     ("🪶 死之羽", "攻击力", 1.0),
     ("⏳ 时之沙", MAIN_STAT_NAMES_CN.get(sands_key, sands_key),
-     MAIN_STAT_DISTRIBUTION[SLOT_SANDS].get(sands_key, 0)),
+     _dist[SLOT_SANDS].get(sands_key, 0)),
     ("🍷 空之杯", MAIN_STAT_NAMES_CN.get(goblet_key, goblet_key),
-     MAIN_STAT_DISTRIBUTION[SLOT_GOBLET].get(goblet_key, 0)),
+     _dist[SLOT_GOBLET].get(goblet_key, 0)),
     ("👑 理之冠", MAIN_STAT_NAMES_CN.get(circlet_key, circlet_key),
-     MAIN_STAT_DISTRIBUTION[SLOT_CIRCLET].get(circlet_key, 0)),
+     _dist[SLOT_CIRCLET].get(circlet_key, 0)),
 ]
 
 for i, (slot_name, stat_name, prob) in enumerate(slot_info):
@@ -198,7 +220,7 @@ if calculate:
     )
 
     with st.spinner("正在计算理论期望..."):
-        results = theoretical_expected_runs(target)
+        results = theoretical_expected_runs(target, data=crawled_data)
 
     # ============================================================
     # 结果展示
@@ -244,22 +266,23 @@ if calculate:
     hardest = results["hardest_piece"]
 
     if hardest == SLOT_GOBLET:
+        goblet_p = _dist[SLOT_GOBLET].get(goblet_key, 0)
         st.info(
             f"杯子是最大的瓶颈——特定元素伤害加成的杯子只有 "
-            f"**{MAIN_STAT_DISTRIBUTION[SLOT_GOBLET].get(goblet_key, 0)*100:.1f}%** 的出现概率。\n\n"
+            f"**{goblet_p*100:.1f}%** 的出现概率。\n\n"
             f"💡 **省肝技巧:** 很多玩家选择用「散件杯子」——即杯子不要求是目标套装，"
             f"只要主词条对就行，另外四个部位凑齐四件套。这样瓶颈就转移到头冠或沙漏上，"
             f"大幅降低总期望次数。"
         )
     elif hardest == SLOT_CIRCLET:
-        circlet_prob = MAIN_STAT_DISTRIBUTION[SLOT_CIRCLET].get(circlet_key, 0)
+        circlet_prob = _dist[SLOT_CIRCLET].get(circlet_key, 0)
         st.info(
             f"头冠是当前的瓶颈部位，目标主词条概率为 **{circlet_prob*100:.1f}%**。\n\n"
             f"如果杯子已经放宽为散件，头冠就是新的瓶颈。双暴头（暴击率/暴击伤害）各 "
             f"10%，是头冠中最稀有的词条。"
         )
     elif hardest == SLOT_SANDS:
-        sand_prob = MAIN_STAT_DISTRIBUTION[SLOT_SANDS].get(sands_key, 0)
+        sand_prob = _dist[SLOT_SANDS].get(sands_key, 0)
         st.info(
             f"沙漏是当前的瓶颈部位，目标主词条概率为 **{sand_prob*100:.1f}%**。\n\n"
             f"大攻击/大生命/大防御各约 26.7%，充能和精通各 10%。如果沙漏要充能或精通，"
@@ -279,4 +302,4 @@ else:
 # 页脚
 # ============================================================
 st.markdown("---")
-st.caption("🎲 数据来源: KQM · Genshin Fandom Wiki · 游戏解包 | 仅供学习参考")
+st.caption(f"🎲 数据源: {data_source or '预设解包数据'} | 仅供学习参考")

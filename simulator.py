@@ -56,7 +56,7 @@ class TargetBuild:
 # 理论计算
 # ============================================================
 
-def theoretical_expected_runs(target: TargetBuild) -> Dict:
+def theoretical_expected_runs(target: TargetBuild, data: Dict = None) -> Dict:
     """
     理论计算：基于概率公式计算期望次数。
 
@@ -65,6 +65,10 @@ def theoretical_expected_runs(target: TargetBuild) -> Dict:
     - 对于每个部位：P(得到) = 部位概率 × 主词条概率
     - 使用收集券问题公式 (coupon collector with unequal probabilities)
       计算集齐五件不同部位的期望次数。
+
+    参数:
+      target: 目标圣遗物配置
+      data: 可选，爬虫获取的最新数据字典（如未提供则使用 artifact_data 硬编码数据）
 
     返回:
       piece_probabilities: 每个部位单次掉落的综合概率
@@ -75,30 +79,47 @@ def theoretical_expected_runs(target: TargetBuild) -> Dict:
       hardest_piece: 瓶颈部位 key
       hardest_piece_name: 瓶颈部位中文名
     """
+    # —— 数据源选择 ——
+    # 如果传入了爬虫数据就用爬虫数据，否则用硬编码数据
+    if data is not None:
+        _DROPS = data.get("expected_drops_per_run", EXPECTED_DROPS_PER_RUN)
+        _SET_PROB = data.get("target_set_prob", TARGET_SET_PROB)
+        _SLOT_PROB = data.get("slot_prob", SLOT_PROB)
+        _MAIN_DIST = data.get("main_stat_distribution", MAIN_STAT_DISTRIBUTION)
+
+        def _get_main_stat_prob(slot: str, main_stat: str) -> float:
+            dist = _MAIN_DIST.get(slot, {})
+            return dist.get(main_stat, 0.0)
+    else:
+        _DROPS = EXPECTED_DROPS_PER_RUN
+        _SET_PROB = TARGET_SET_PROB
+        _SLOT_PROB = SLOT_PROB
+        _get_main_stat_prob = get_main_stat_prob
+
     piece_probs = {}
 
     # 花 — 固定生命值
-    p_flower = SLOT_PROB[SLOT_FLOWER] * get_main_stat_prob(SLOT_FLOWER, "flat_hp")
+    p_flower = _SLOT_PROB[SLOT_FLOWER] * _get_main_stat_prob(SLOT_FLOWER, "flat_hp")
     piece_probs[SLOT_FLOWER] = p_flower
 
     # 羽毛 — 固定攻击力
-    p_plume = SLOT_PROB[SLOT_PLUME] * get_main_stat_prob(SLOT_PLUME, "flat_atk")
+    p_plume = _SLOT_PROB[SLOT_PLUME] * _get_main_stat_prob(SLOT_PLUME, "flat_atk")
     piece_probs[SLOT_PLUME] = p_plume
 
     # 沙漏
-    p_sands = SLOT_PROB[SLOT_SANDS] * get_main_stat_prob(SLOT_SANDS, target.sands_main)
+    p_sands = _SLOT_PROB[SLOT_SANDS] * _get_main_stat_prob(SLOT_SANDS, target.sands_main)
     piece_probs[SLOT_SANDS] = p_sands
 
     # 杯子 — 通常是瓶颈
-    p_goblet = SLOT_PROB[SLOT_GOBLET] * get_main_stat_prob(SLOT_GOBLET, target.goblet_main)
+    p_goblet = _SLOT_PROB[SLOT_GOBLET] * _get_main_stat_prob(SLOT_GOBLET, target.goblet_main)
     piece_probs[SLOT_GOBLET] = p_goblet
 
     # 头
-    p_circlet = SLOT_PROB[SLOT_CIRCLET] * get_main_stat_prob(SLOT_CIRCLET, target.circlet_main)
+    p_circlet = _SLOT_PROB[SLOT_CIRCLET] * _get_main_stat_prob(SLOT_CIRCLET, target.circlet_main)
     piece_probs[SLOT_CIRCLET] = p_circlet
 
     # 每次副本期望获得的有效圣遗物数
-    effective_per_run = EXPECTED_DROPS_PER_RUN * TARGET_SET_PROB
+    effective_per_run = _DROPS * _SET_PROB
 
     # 每次副本期望获得的每个部位数量
     expected_per_run = {
@@ -189,7 +210,7 @@ def print_theoretical_results(results: Dict):
 # CLI 入口（也可被 main.py 调用）
 # ============================================================
 
-def main():
+def main(data: Dict = None):
     parser = argparse.ArgumentParser(
         description="原神圣遗物期望计算器（理论计算）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -225,7 +246,7 @@ def main():
     print(f"  杯子: {MAIN_STAT_NAMES_CN.get(args.goblet, args.goblet)}")
     print(f"  头冠: {MAIN_STAT_NAMES_CN.get(args.circlet, args.circlet)}")
 
-    results = theoretical_expected_runs(target)
+    results = theoretical_expected_runs(target, data=data)
     print_theoretical_results(results)
 
     if args.save:

@@ -72,7 +72,7 @@ def main():
 
     print("\n[阶段 2/2] 进行数值模拟...")
     sys.argv = [sys.argv[0]] + remaining
-    simulator_main()
+    simulator_main(data=data)       # ← 把爬到的数据传给模拟器
 
 
 if __name__ == "__main__":
